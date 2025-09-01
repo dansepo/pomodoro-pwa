@@ -19,7 +19,7 @@ export function useOnboarding() {
       localStorage.setItem(ONBOARDING_KEY, 'true');
       setShowOnboarding(false);
     } catch (error) {
-      console.error("Failed to update onboarding status in localStorage", error);
+      console.error("localStorage에서 온보딩 상태 업데이트 실패", error);
     }
   }, []);
   

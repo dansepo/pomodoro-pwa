@@ -240,10 +240,10 @@ export default function PomodoroTimer() {
       window.addEventListener("load", function () {
         navigator.serviceWorker.register("/sw.js").then(
           function (registration) {
-            console.log("Service Worker registration successful with scope: ", registration.scope);
+            console.log("서비스 워커 등록 성공, 범위: ", registration.scope);
           },
           function (err) {
-            console.log("Service Worker registration failed: ", err);
+            console.log("서비스 워커 등록 실패: ", err);
           }
         );
       });

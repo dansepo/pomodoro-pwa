@@ -16,7 +16,7 @@ sw.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then((cache) => {
-        console.log('Service Worker: Caching app shell');
+        console.log('서비스 워커: 앱 셸 캐싱 중');
         return cache.addAll(URLS_TO_CACHE);
       })
       .then(() => {
