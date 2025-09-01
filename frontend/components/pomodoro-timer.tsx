@@ -208,6 +208,12 @@ export default function PomodoroTimer() {
       return;
     }
 
+    // When a session ends, stop the timer.
+    // We call toggleTimer() to ensure group sessions are also updated.
+    if (isRunning) {
+      toggleTimer();
+    }
+
     // This runs when a session ends and a new one begins.
     const newTitle = timerState === 'focus' ? "🚀 집중할 시간!" : "🧘 휴식 시간!";
     updateFavicon('#f97316'); // Orange alert favicon
