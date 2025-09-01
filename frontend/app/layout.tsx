@@ -34,14 +34,14 @@ export const viewport: Viewport = {
 }
 
 export const metadata: Metadata = {
-  title: "Focus Timer",
+  title: "White Timer",
   description: "A minimalist Pomodoro timer for focused work sessions",
   manifest: "/manifest.json",
   themeColor: "#059669",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "Focus Timer",
+    title: "White Timer",
   },
   formatDetection: {
     telephone: false,

@@ -1,21 +1,22 @@
-import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label"
+import { Input } from "@/components/ui/input"
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue
-} from "@/components/ui/select";
-import type {
-  TimerSettings
-} from "@/components/pomodoro-timer";
+  SelectValue,
+} from "@/components/ui/select"
+import { ScheduleSettings } from "./schedule-settings"
+import { useScheduler } from "@/hooks/use-scheduler"
+import type { TimerSettings } from "@/types"
 
 interface SettingsDialogProps {
-  settings: TimerSettings;
-  onSettingsChange: (newSettings: Partial<TimerSettings>) => void;
-  selectedSound: string;
-  onSoundChange: (sound: string) => void;
-  isEditable: boolean;
+  settings: TimerSettings
+  onSettingsChange: (newSettings: Partial<TimerSettings>) => void
+  selectedSound: string
+  onSoundChange: (sound: string) => void
+  isEditable: boolean
 }
 
 export function SettingsDialog({
@@ -25,58 +26,62 @@ export function SettingsDialog({
   onSoundChange,
   isEditable,
 }: SettingsDialogProps) {
+  const { schedules, addSchedule, updateSchedule, deleteSchedule } = useScheduler();
+
   return (
-    <div className="space-y-4 pt-2">
-      {!isEditable && (
-        <div className="p-3 bg-muted rounded-lg">
-          <p className="text-sm text-muted-foreground">그룹 세션에서는 방장만 설정을 변경할 수 있습니다.</p>
+    <div className="space-y-6 pt-2">
+      <div className="space-y-4">
+        <h3 className="text-base font-semibold">시간 설정</h3>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <Label htmlFor="focusTime" className="text-sm">집중 (분)</Label>
+            <Input
+              id="focusTime"
+              type="number"
+              value={settings.focusTime}
+              onChange={(e) => onSettingsChange({ focusTime: Number(e.target.value) })}
+              disabled={!isEditable}
+              className="mt-1"
+            />
+          </div>
+          <div>
+            <Label htmlFor="breakTime" className="text-sm">휴식 (분)</Label>
+            <Input
+              id="breakTime"
+              type="number"
+              min="0"
+              value={settings.breakTime}
+              onChange={(e) => onSettingsChange({ breakTime: Math.max(0, Number(e.target.value)) })}
+              disabled={!isEditable}
+              className="mt-1"
+            />
+          </div>
         </div>
-      )}
-
-      <div className="flex items-center flex-wrap gap-2">
-        <span className="text-xs font-medium text-muted-foreground w-8 shrink-0">집중</span>
-        {[15, 25, 30, 45, 50, 60, 90].map((time) => (
-          <Button
-            key={time}
-            variant={settings.focusTime === time ? "secondary" : "outline"}
-            onClick={() => onSettingsChange({ focusTime: time })}
-            className="h-7 px-2 text-xs"
-            disabled={!isEditable}
-          >
-            {time}분
-          </Button>
-        ))}
       </div>
 
-      <div className="flex items-center flex-wrap gap-2">
-        <span className="text-xs font-medium text-muted-foreground w-8 shrink-0">휴식</span>
-        {[5, 10, 15, 20, 30, 45].map((time) => (
-          <Button
-            key={time}
-            variant={settings.shortBreakTime === time ? "secondary" : "outline"}
-            onClick={() => onSettingsChange({ shortBreakTime: time })}
-            className="h-7 px-2 text-xs"
-            disabled={!isEditable}
-          >
-            {time}분
-          </Button>
-        ))}
+      <div className="space-y-4">
+        <h3 className="text-base font-semibold">알림음 설정</h3>
+        <Select value={selectedSound} onValueChange={onSoundChange}>
+          <SelectTrigger>
+            <SelectValue placeholder="알림음 선택" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="bell">Bell</SelectItem>
+            <SelectItem value="bird">Bird</SelectItem>
+            <SelectItem value="digital">Digital</SelectItem>
+            <SelectItem value="kitchen">Kitchen</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
-      <Select
-        value={selectedSound}
-        onValueChange={onSoundChange}
-        disabled={!isEditable}
-      >
-        <SelectTrigger className="h-7 text-xs">
-          <SelectValue placeholder="알림음 선택..." />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="/notification.wav">기본음</SelectItem>
-          <SelectItem value="/bell.wav">벨소리</SelectItem>
-          <SelectItem value="/chime.wav">차임벨</SelectItem>
-        </SelectContent>
-      </Select>
+      <ScheduleSettings
+        schedules={schedules}
+        onAdd={addSchedule}
+        onUpdate={updateSchedule}
+        onDelete={deleteSchedule}
+        currentSettings={settings}
+        currentSound={selectedSound}
+      />
     </div>
-  );
+  )
 }

@@ -9,7 +9,8 @@ const URLS_TO_CACHE = [
 ];
 
 const sw = self;
-let timerId;
+let endOfSessionTimerId;
+let scheduledStartTimerId;
 
 // 1. 설치 (Install)
 sw.addEventListener('install', (event) => {
@@ -67,8 +68,7 @@ sw.addEventListener('fetch', (event) => {
         });
       })
       .catch(() => {
-        // 오프라인 상태 등 에러 발생 시 대체 페이지를 보여줄 수 있습니다.
-        // 예: return caches.match('/offline.html');
+        // 오프라인 상태 등 에러 발생 시 대체 페이지를 보여줄 수 있습니다. (예: return caches.match('/offline.html');)
       })
   );
 });
@@ -78,16 +78,43 @@ sw.addEventListener("message", (event) => {
   if (event.data && event.data.type === "START_TIMER") {
     const { title, ...options } = event.data.notification;
     const delay = event.data.delay;
-    if (timerId) clearTimeout(timerId);
-    timerId = sw.setTimeout(() => {
+    if (endOfSessionTimerId) clearTimeout(endOfSessionTimerId);
+    endOfSessionTimerId = sw.setTimeout(() => {
       sw.registration.showNotification(title, options);
-      timerId = undefined;
+      endOfSessionTimerId = undefined;
     }, delay);
   }
 
   if (event.data && event.data.type === "STOP_TIMER") {
-    if (timerId) clearTimeout(timerId);
-    timerId = undefined;
+    if (endOfSessionTimerId) clearTimeout(endOfSessionTimerId);
+    endOfSessionTimerId = undefined;
+  }
+
+  if (event.data && event.data.type === "SCHEDULE_TIMER") {
+    if (scheduledStartTimerId) clearTimeout(scheduledStartTimerId);
+
+    scheduledStartTimerId = sw.setTimeout(() => {
+      // 모든 열린 탭에 타이머 시작을 알림
+      sw.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+        clientList.forEach((client) => {
+          client.postMessage({ type: 'START_FROM_SCHEDULE', scheduleId: event.data.scheduleId });
+        });
+      });
+      // 열린/활성 탭이 없는 경우를 대비해 알림도 표시
+      sw.registration.showNotification("스케줄 시작!", {
+        body: "예약된 집중 세션을 시작합니다.",
+        icon: '/icon-192.png',
+        tag: 'pomodoro-schedule-start'
+      });
+      scheduledStartTimerId = undefined;
+    }, event.data.delay);
+  }
+
+  if (event.data && event.data.type === "CANCEL_SCHEDULED_TIMER") {
+    if (scheduledStartTimerId) {
+      clearTimeout(scheduledStartTimerId);
+      scheduledStartTimerId = undefined;
+    }
   }
 });
 

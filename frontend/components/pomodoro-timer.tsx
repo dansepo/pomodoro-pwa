@@ -21,6 +21,8 @@ import { toast } from "@/hooks/use-toast"
 import { Notepad } from "./timer/notepad"
 import { Kbd } from "@/components/ui/kbd"
 import { useOnboarding } from "@/hooks/use-onboarding"
+import { useScheduler } from "@/hooks/use-scheduler"
+import { useTriggeredSchedules } from "@/hooks/use-triggered-schedules"
 import { usePomodoroTimer } from "@/hooks/use-pomodoro-timer"
 import { usePomodoroHistory } from "@/hooks/use-pomodoro-history"
 import { useGroupSession } from "@/hooks/use-group-session"
@@ -30,56 +32,11 @@ import { OnboardingDialog } from "./timer/onboarding-dialog"
 import { GroupSessionDialog } from "./timer/group-session-dialog"
 import { HelpDialog } from "./timer/help-dialog"
 import { HistoryDialog } from "@/components/timer/history-dialog"
-
-
-export type TimerState = "focus" | "shortBreak" | "longBreak"
-
-export interface TimerSettings {
-  focusTime: number
-  shortBreakTime: number
-  longBreakTime: number
-  sessionsPerCycle: number
-}
-
-export interface Cycle {
-  id: number;
-  name: string;
-}
-
-export interface Note {
-  id: number;
-  timestamp: string;
-  cycleId: number;
-  content: string;
-}
-
-export interface TimelineCycle extends Cycle {
-  notes: Note[];
-}
-
-export interface GroupMember {
-  id: string
-  name: string
-  isHost: boolean
-  lastSeen: number
-}
-
-export interface GroupSession {
-  id: string
-  hostId: string
-  timerState: TimerState
-  timeLeft: number
-  isRunning: boolean
-  completedCycles: number
-  settings: TimerSettings
-  members: GroupMember[]
-  lastUpdate: number
-}
+import type { TimerSettings, TimerState, GroupMember, Schedule } from "@/types"
 
 const INITIAL_SETTINGS: TimerSettings = {
   focusTime: 25,
-  shortBreakTime: 5,
-  longBreakTime: 15,
+  breakTime: 0,
   sessionsPerCycle: 1,
 }
 
@@ -88,7 +45,10 @@ export default function PomodoroTimer() {
   const [isHelpOpen, setIsHelpOpen] = useState(false)
   const [isOnline, setIsOnline] = useState(true)
 
-  const originalTitle = useRef("Focus Timer");
+  const { schedules } = useScheduler()
+  const { hasBeenTriggeredToday, addTriggeredId } = useTriggeredSchedules();
+
+  const originalTitle = useRef("White Timer");
   const isInitialMount = useRef(true);
 
   const {
@@ -188,15 +148,15 @@ export default function PomodoroTimer() {
     if (isRunning) {
       document.title = `${originalTitle.current} - ${formatTime(timeLeft)}`;
       if (timerState === 'focus') {
-        updateFavicon('#ef4444'); // Red
+        updateFavicon('#ef4444'); // 빨간색
       } else {
-        updateFavicon('#22c55e'); // Green
+        updateFavicon('#22c55e'); // 녹색
       }
     } else {
-      // Reset when paused or stopped, but only if not blinking
+      // 일시정지 또는 중지 시 리셋 (깜빡이는 중이 아닐 때만)
       if (!document.title.includes('!')) {
         document.title = originalTitle.current;
-        updateFavicon('#64748b'); // Gray
+        updateFavicon('#64748b'); // 회색
       }
     }
   }, [isRunning, timeLeft, timerState, formatTime, updateFavicon]);
@@ -208,23 +168,23 @@ export default function PomodoroTimer() {
       return;
     }
 
-    // When a session ends, stop the timer.
-    // We call toggleTimer() to ensure group sessions are also updated.
+    // 세션이 끝나면 타이머를 멈춥니다.
+    // 그룹 세션도 업데이트되도록 toggleTimer()를 호출합니다.
     if (isRunning) {
       toggleTimer();
     }
 
-    // This runs when a session ends and a new one begins.
+    // 이 코드는 세션이 끝나고 새 세션이 시작될 때 실행됩니다.
     const newTitle = timerState === 'focus' ? "🚀 집중할 시간!" : "🧘 휴식 시간!";
-    updateFavicon('#f97316'); // Orange alert favicon
+    updateFavicon('#f97316'); // 주황색 알림 파비콘
 
     let blinkCount = 0;
     const intervalId = setInterval(() => {
       document.title = document.title === newTitle ? originalTitle.current : newTitle;
       blinkCount++;
-      if (blinkCount > 6) { // Stop blinking after 3 seconds
+      if (blinkCount > 6) { // 3초 후 깜빡임 중지
         clearInterval(intervalId);
-        // The other effect will take over and set the correct title/favicon
+        // 다른 effect가 올바른 제목/파비콘을 설정하도록 합니다.
       }
     }, 500);
 
@@ -234,6 +194,72 @@ export default function PomodoroTimer() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timerState, updateFavicon]);
+
+  // 서비스 워커로 다음 타이머를 예약하는 effect
+  useEffect(() => {
+    if (!('serviceWorker' in navigator) || !navigator.serviceWorker.ready) {
+      return;
+    }
+
+    const scheduleNext = (sw: ServiceWorker) => {
+      // 먼저, 이전에 예약된 타이머를 취소합니다.
+      sw.postMessage({ type: 'CANCEL_SCHEDULED_TIMER' });
+
+      // 아직 실행되지 않은 가장 가까운 다음 스케줄을 찾습니다.
+      const now = new Date();
+      const result = schedules.reduce<{ schedule: Schedule | null, delay: number }>((acc, s) => {
+        if (!s.enabled || hasBeenTriggeredToday(s.id)) {
+          return acc;
+        }
+
+        const [hours, minutes] = s.time.split(':').map(Number);
+        const scheduledTimeToday = new Date();
+        scheduledTimeToday.setHours(hours, minutes, 0, 0);
+        const delayToday = scheduledTimeToday.getTime() - now.getTime();
+
+        if (s.days.includes(now.getDay()) && delayToday > 0 && delayToday < acc.delay) {
+          return { schedule: s, delay: delayToday };
+        }
+        return acc;
+      }, { schedule: null, delay: Infinity });
+
+      const { schedule: nextSchedule, delay: minDelay } = result;
+
+      if (nextSchedule) {
+        sw.postMessage({
+          type: 'SCHEDULE_TIMER',
+          delay: minDelay,
+          scheduleId: nextSchedule.id,
+        });
+      }
+    };
+
+    navigator.serviceWorker.ready.then(registration => {
+      if (registration.active) {
+        scheduleNext(registration.active);
+      }
+    });
+  }, [schedules, hasBeenTriggeredToday]);
+
+  // 서비스 워커로부터 메시지를 수신하는 effect
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data && event.data.type === 'START_FROM_SCHEDULE' && !isRunning) {
+        const scheduleId = event.data.scheduleId;
+        const scheduleToTrigger = schedules.find(s => s.id === scheduleId);
+
+        if (scheduleToTrigger) {
+          updateSettings(scheduleToTrigger.settings);
+          setSelectedSound(scheduleToTrigger.sound);
+          addTriggeredId(scheduleToTrigger.id);
+          toast({ title: "스케줄 시작!", description: `예약된 집중 세션을 시작합니다.` });
+          toggleTimer();
+        }
+      }
+    };
+    navigator.serviceWorker?.addEventListener('message', handleMessage);
+    return () => navigator.serviceWorker?.removeEventListener('message', handleMessage);
+  }, [schedules, addTriggeredId, updateSettings, setSelectedSound, toggleTimer, isRunning]);
 
   useEffect(() => {
     if ("serviceWorker" in navigator && process.env.NODE_ENV !== 'development') {
@@ -270,20 +296,18 @@ export default function PomodoroTimer() {
         title: `집중 시간이 ${newTime}분으로 변경되었습니다.`,
       });
     } else { // shortBreak or longBreak
-      const possibleTimes = [5, 10, 15, 20, 30, 45];
-      // Use shortBreakTime as the canonical value for all breaks
-      const currentTime = settings.shortBreakTime;
+      const possibleTimes = [5, 10, 15, 20, 30];
+      const currentTime = settings.breakTime;
       const currentIndex = possibleTimes.indexOf(currentTime);
       const nextIndex = (currentIndex + 1) % possibleTimes.length;
       const newTime = possibleTimes[nextIndex];
 
-      // Update both short and long break for simplicity
-      updateSettings({ shortBreakTime: newTime, longBreakTime: newTime });
+      updateSettings({ breakTime: newTime });
       toast({
         title: `휴식 시간이 ${newTime}분으로 변경되었습니다.`,
       });
     }
-  }, [isGroupMode, currentUser, timerState, settings, updateSettings]);
+  }, [isGroupMode, currentUser, timerState, settings.focusTime, settings.breakTime, updateSettings]);
 
   const handleCycleCountChange = useCallback(() => {
     if (isGroupMode && !currentUser?.isHost) {
@@ -319,12 +343,20 @@ export default function PomodoroTimer() {
   const joinGroupSession = useCallback(() => {
     const session = joinGroup()
     if (session) {
-      setTimerState(session.timerState)
-      setTimeLeft(session.timeLeft)
-      setIsRunning(session.isRunning)
-      setCompletedCycles(session.completedCycles)
-      setSettings(session.settings)
-      lastSyncedUpdate.current = session.lastUpdate
+      setTimerState(session.timerState);
+      setTimeLeft(session.timeLeft);
+      setIsRunning(session.isRunning);
+      setCompletedCycles(session.completedCycles);
+
+      // 다른 클라이언트의 이전 설정 형식을 처리하기 위한 데이터 마이그레이션
+      const remoteSettings = session.settings as any;
+      const newSettings: TimerSettings = {
+        focusTime: remoteSettings.focusTime ?? INITIAL_SETTINGS.focusTime,
+        breakTime: remoteSettings.breakTime ?? remoteSettings.shortBreakTime ?? INITIAL_SETTINGS.breakTime,
+        sessionsPerCycle: remoteSettings.sessionsPerCycle ?? INITIAL_SETTINGS.sessionsPerCycle,
+      };
+      setSettings(newSettings);
+      lastSyncedUpdate.current = session.lastUpdate;
     }
   }, [joinGroup, setTimerState, setTimeLeft, setIsRunning, setCompletedCycles, setSettings])
 
@@ -348,10 +380,8 @@ export default function PomodoroTimer() {
           // Determine the title for the notification when the current timer ends
           let title = '';
           if (timerState === 'focus') {
-            const nextCycleIndex = (completedCycles + 1) % settings.sessionsPerCycle;
-            const isLongBreakNext = nextCycleIndex === 0 && settings.sessionsPerCycle > 0;
-            title = isLongBreakNext ? '긴 휴식 시간입니다!' : '짧은 휴식 시간입니다!';
-          } else {
+            title = '휴식 시간입니다!';
+          } else { // break
             title = '휴식이 끝났습니다. 집중할 시간이에요!';
           }
 
@@ -363,25 +393,25 @@ export default function PomodoroTimer() {
               body: '다음 세션을 시작하세요.',
               icon: '/icon-192.png',
               vibrate: [200, 100, 200],
-              tag: 'pomodoro-notification', // To replace previous notifications
-              renotify: true, // To make sound/vibration on update
+              tag: 'pomodoro-notification', // 이전 알림을 대체
+              renotify: true, // 업데이트 시 소리/진동 발생
             },
           });
         } else {
-          // When timer is paused, reset, or finished
+          // 타이머가 일시정지, 리셋, 또는 종료되었을 때
           serviceWorker.postMessage({
             type: 'STOP_TIMER',
           });
         }
       });
     }
-    // This effect re-runs when the running state changes or a new session starts.
-    // `timeLeft` is intentionally omitted from deps to prevent re-posting on every tick.
-    // The correct `timeLeft` is captured at the moment the timer starts/restarts.
+    // 이 effect는 실행 상태가 변경되거나 새 세션이 시작될 때 다시 실행됩니다.
+    // 매 틱마다 재전송되는 것을 방지하기 위해 의도적으로 `timeLeft`를 의존성 배열에서 제외했습니다.
+    // 올바른 `timeLeft`는 타이머가 시작/재시작되는 순간에 캡처됩니다.
   }, [isRunning, timerState, completedCycles, settings]);
 
   useEffect(() => {
-    // Set initial state on client mount
+    // 클라이언트 마운트 시 초기 상태 설정
     setIsOnline(navigator.onLine);
 
     const handleOnline = () => setIsOnline(true);
@@ -399,46 +429,46 @@ export default function PomodoroTimer() {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement
-      // Don't trigger shortcuts if user is typing in an input or textarea
+      // 사용자가 input 또는 textarea에 입력 중일 때는 단축키를 실행하지 않습니다.
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
         return
       }
 
       if (event.altKey) {
         switch (event.code) {
-          case 'KeyR': // Reset
+          case 'KeyR': // 리셋
             event.preventDefault()
             resetTimer()
             break
-          case 'KeyG': // Group
+          case 'KeyG': // 그룹
             event.preventDefault()
             setIsGroupSheetOpen(prev => !prev)
             break
-          case 'KeyS': // Settings (Sound)
+          case 'KeyS': // 설정 (소리)
             event.preventDefault()
             setIsSettingsOpen(prev => !prev)
             break
-          case 'KeyN': // Notepad
+          case 'KeyN': // 메모장
             event.preventDefault()
             setIsNotepadOpen(prev => !prev)
             break
-          case 'KeyM': // Mute
+          case 'KeyM': // 음소거
             event.preventDefault()
             toggleMute()
             break
-          case 'KeyT': // Timeline/History
+          case 'KeyT': // 히스토리
             event.preventDefault()
             setIsTimelineOpen(prev => !prev)
             break
         }
       } else {
         switch (event.code) {
-          case 'Space': // Toggle Timer
+          case 'Space': // 타이머 시작/정지
             event.preventDefault()
             toggleTimer()
             break
-          case 'Slash':
-            if (event.shiftKey) { // '?'
+          case 'Slash': // '?'
+            if (event.shiftKey) {
               event.preventDefault()
               setIsHelpOpen(prev => !prev)
             }
@@ -460,11 +490,8 @@ export default function PomodoroTimer() {
   if (timerState === 'focus') {
     const totalTime = settings.focusTime * 60;
     progress = totalTime > 0 ? ((totalTime - timeLeft) / totalTime) * 100 : 0;
-  } else if (timerState === 'shortBreak') {
-    const totalTime = settings.shortBreakTime * 60;
-    progress = totalTime > 0 ? ((totalTime - timeLeft) / totalTime) * 100 : 0;
-  } else if (timerState === 'longBreak') {
-    const totalTime = settings.longBreakTime * 60;
+  } else if (timerState === 'break') {
+    const totalTime = settings.breakTime * 60;
     progress = totalTime > 0 ? ((totalTime - timeLeft) / totalTime) * 100 : 0;
   }
 
@@ -620,7 +647,7 @@ export default function PomodoroTimer() {
 
           <div className="flex flex-col items-center mt-4 -translate-y-10 md:-translate-y-12">
             {isGroupMode && (() => {
-              const hostName = groupSession?.members.find(m => m.isHost)?.name;
+              const hostName = groupSession?.members.find((m: GroupMember) => m.isHost)?.name;
               const displayName = hostName ? `${hostName}그룹` : '그룹 세션';
               return (
                 <div className="mb-2 flex items-center gap-2 text-sm text-slate-500">
@@ -650,9 +677,8 @@ export default function PomodoroTimer() {
                 const isCurrent = index === cyclePosition
 
                 if (isCurrent) {
-                  const upcomingBreakIsLong = (index + 1) % settings.sessionsPerCycle === 0
                   const focusDuration = settings.focusTime
-                  const breakDuration = upcomingBreakIsLong ? settings.longBreakTime : settings.shortBreakTime
+                  const breakDuration = settings.breakTime
                   const totalDuration = focusDuration + breakDuration
                   const focusWidth = totalDuration > 0 ? (focusDuration / totalDuration) * 100 : 0
 
@@ -665,7 +691,7 @@ export default function PomodoroTimer() {
 
                   if (timerState === "focus") {
                     focusProgress = progress
-                  } else if (timerState === 'shortBreak' || timerState === 'longBreak') {
+                  } else if (timerState === 'break') {
                     focusProgress = 100 // Focus is complete
                     breakProgress = progress
                   }
@@ -714,7 +740,7 @@ export default function PomodoroTimer() {
         <Dialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
           <DialogContent className="max-h-[90vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>알림음 설정</DialogTitle>
+              <DialogTitle>설정</DialogTitle>
             </DialogHeader>
             <SettingsDialog
               settings={settings}

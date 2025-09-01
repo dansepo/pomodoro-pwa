@@ -1,6 +1,6 @@
 {
-  "name": "Focus Timer",
-  "short_name": "Focus Timer",
+  "name": "White Timer",
+  "short_name": "White Timer",
   "description": "A minimalist Pomodoro timer for focused work sessions",
   "start_url": "/",
   "display": "standalone",
