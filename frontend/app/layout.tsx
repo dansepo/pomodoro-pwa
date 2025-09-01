@@ -1,6 +1,6 @@
 import type React from "react"
 import type { Metadata, Viewport } from "next"
-import { Geist, Geist_Mono, Train_One } from "next/font/google"
+import { Geist, Geist_Mono, Train_One, Orbitron } from "next/font/google"
 import "./globals.css"
 
 const geistSans = Geist({
@@ -21,6 +21,11 @@ const trainOne = Train_One({
   variable: "--font-digital",
 })
 
+const orbitron = Orbitron({
+  subsets: ["latin"],
+  variable: "--font-orbitron",
+})
+
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
@@ -29,14 +34,14 @@ export const viewport: Viewport = {
 }
 
 export const metadata: Metadata = {
-  title: "White - Pomodoro Timer",
+  title: "Focus Timer",
   description: "A minimalist Pomodoro timer for focused work sessions",
   manifest: "/manifest.json",
   themeColor: "#059669",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "White Timer",
+    title: "Focus Timer",
   },
   formatDetection: {
     telephone: false,
@@ -54,7 +59,7 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="ko" className={`${geistSans.variable} ${geistMono.variable} ${trainOne.variable} antialiased`}>
+    <html lang="ko" className={`${geistSans.variable} ${geistMono.variable} ${trainOne.variable} ${orbitron.variable} antialiased`}>
       <body>{children}</body>
     </html>
   )

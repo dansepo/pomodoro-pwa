@@ -22,6 +22,7 @@ const config = {
         sans: ["var(--font-geist-sans)"],
         mono: ["var(--font-geist-mono)"],
         digital: ["var(--font-digital)"],
+        orbitron: ["var(--font-orbitron)"],
       },
       colors: {
         border: "hsl(var(--border))",
